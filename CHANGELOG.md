@@ -3,6 +3,24 @@
 All notable changes to this project follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-04-20
+
+### Added
+
+- New tool `generate_pbip_dashboard` that materializes the loaded project as a
+  Power BI Project (PBIP) folder with full semantic model (3 tables, 10 DAX
+  measures, 2 relationships, pt-BR culture) and a blank report page.
+- Module `pbip_writer` with `PbipWriter` class for generating TMDL and PBIR
+  artifacts. No external dependencies.
+- Option `open_in_power_bi=True` (default) to auto-launch Power BI Desktop on
+  the generated `.pbip` file.
+- Companion Claude skill `powerbi-project-dashboard.md` (deployed separately
+  to `~/.claude/skills/`) that teaches Claude when and how to use the tool.
+
+### Changed
+
+- Tool count: 12 → 13.
+
 ## [0.1.0] - 2026-04-20
 
 ### Added

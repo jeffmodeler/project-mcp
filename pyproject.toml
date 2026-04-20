@@ -1,6 +1,6 @@
 [project]
 name = "project-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "MCP server for reading Microsoft Project files (MSPDI XML and .mpp)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -52,6 +52,10 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/project_mcp/pbip_writer.py" = ["E501"]
+"src/project_mcp/server.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -94,6 +94,7 @@ Restart Claude Desktop. The 12 tools become available in any conversation.
 | `get_baseline_variance` | Current vs baseline date and duration comparison |
 | `get_gantt_data` | Tasks formatted for Gantt-chart libraries |
 | `export_to_json` | Full project export to JSON file (or inline) |
+| `generate_pbip_dashboard` | Generate a Power BI Project (.pbip) and open it in Power BI Desktop |
 
 ## Exporting `.mpp` to MSPDI XML
 
