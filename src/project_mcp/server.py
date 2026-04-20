@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from project_mcp import mspdi
+from project_mcp.pbip_writer import PbipWriter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -82,6 +85,54 @@ def load_project(path: str) -> str:
         "resources_count": len(project.resources),
         "assignments_count": len(project.assignments),
     })
+
+
+@mcp.tool()
+def open_in_ms_project(path: str | None = None) -> str:
+    """Open a project file in Microsoft Project using the default OS association.
+
+    If path is omitted, opens the file that is currently loaded in memory.
+    Uses the Windows shell (cmd /c start) so the file opens with whatever
+    application is registered for .xml or .mpp on the user's machine.
+
+    Args:
+        path: Absolute path to the project file. Optional — defaults to the
+              source_path of the currently loaded project.
+
+    Returns:
+        JSON confirming the file was sent to the OS for opening, or an error.
+    """
+    target: str | None = path
+
+    if target is None:
+        project = _state.get("project")
+        if project is None:
+            return _serialize({
+                "error": "No project loaded and no path provided. "
+                         "Call load_project(path) first or pass a path explicitly."
+            })
+        target = str(project.source_path)
+
+    file_path = Path(target).expanduser()
+    if not file_path.exists():
+        return _serialize({"error": f"File not found: {target}"})
+
+    try:
+        # Use 'start' via cmd so Windows opens with the registered app (MS Project)
+        subprocess.Popen(
+            ["cmd", "/c", "start", "", str(file_path)],
+            shell=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        logger.info("Sent to OS for opening: %s", file_path)
+        return _serialize({
+            "opened": True,
+            "path": str(file_path),
+            "note": "File dispatched to the OS. Microsoft Project should open shortly.",
+        })
+    except Exception as exc:  # noqa: BLE001
+        return _serialize({"error": f"Failed to open file: {exc}"})
 
 
 @mcp.tool()
@@ -492,6 +543,79 @@ def export_to_json(output_path: str | None = None) -> str:
             "assignments": len(payload["assignments"]),
         })
     return _serialize(payload)
+
+
+@mcp.tool()
+def generate_pbip_dashboard(
+    output_dir: str,
+    project_name: str = "ProjectDashboard",
+    open_in_power_bi: bool = True,
+    xml_path: str | None = None,
+) -> str:
+    """Generate a Power BI Project (PBIP) dashboard from the loaded project.
+
+    Creates a complete PBIP folder structure with SemanticModel (tables, measures,
+    relationships) and a Report folder. The resulting folder can be opened in
+    Power BI Desktop by double-clicking the .pbip file.
+
+    The semantic model includes:
+    - Three tables: Tarefas (non-summary tasks), Recursos (resources), Atribuicoes
+      (assignments) with inline M-query partitions containing the project data.
+    - Ten standard DAX measures (Avanco Geral, Custo Total, Tarefas Concluidas,
+      Custo por Fase, etc.)
+    - Two relationships (Atribuicoes -> Tarefas and Atribuicoes -> Recursos).
+    - pt-BR culture.
+
+    Args:
+        output_dir: Absolute path to the folder where the PBIP project is written.
+            The folder is created if missing.
+        project_name: Name of the PBIP project (used as folder prefix and in the
+            Power BI Desktop title bar). Defaults to "ProjectDashboard".
+        open_in_power_bi: If True (default), launches Power BI Desktop on the
+            generated .pbip file after writing.
+        xml_path: Optional path to an MSPDI XML file to load before generating.
+            If None, uses the currently-loaded project (load_project must have
+            been called first).
+
+    Returns:
+        JSON with the output path, the .pbip file path, counts of what was
+        written, and whether Power BI Desktop was launched.
+    """
+    if xml_path:
+        file_path = Path(xml_path).expanduser()
+        if not file_path.exists():
+            return _serialize({"error": f"XML file not found: {xml_path}"})
+        _state["project"] = mspdi.parse_file(file_path)
+
+    project = _project()
+    output = Path(output_dir).expanduser()
+
+    writer = PbipWriter(project=project, output_dir=output, project_name=project_name)
+    info = writer.write()
+
+    launched = False
+    launch_error: str | None = None
+    if open_in_power_bi:
+        pbip_file = info["pbip_file"]
+        try:
+            if os.name == "nt":
+                os.startfile(pbip_file)  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", pbip_file])
+            launched = True
+        except Exception as exc:
+            launch_error = str(exc)
+
+    return _serialize({
+        **info,
+        "opened_in_power_bi": launched,
+        "launch_error": launch_error,
+        "instructions": (
+            "Open the .pbip file in Power BI Desktop (auto-launched if open_in_power_bi=True). "
+            "After loading, add visuals to the 'Resumo' page: Card with [Avanco Geral], "
+            "Card with [Custo Total], bar chart by Fase, and a table of critical tasks."
+        ),
+    })
 
 
 def main() -> None:
