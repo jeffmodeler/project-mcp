@@ -10,7 +10,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from project_mcp import awp, mspdi
+from project_mcp import awp, lps, mspdi
 from project_mcp.pbip_writer import PbipWriter
 
 logging.basicConfig(
@@ -768,6 +768,176 @@ def awp_export_wpr(cwp_id: str) -> str:
     and IWP breakdown. This is what you hand to field execution.
     """
     return _serialize(awp.export_wpr(_project(), cwp_id))
+
+
+# ============================================================
+# LPS — Last Planner System (Lean Construction)
+#
+# Five planning levels: Master -> Phase (pull plan) -> Lookahead ->
+# Weekly Work Plan -> Daily. Key metric: PPC (Percent Plan Complete).
+#
+# State persisted in sidecar file `lps.json` (same folder as awp.json).
+# ============================================================
+
+
+@mcp.tool()
+def lps_list_phases() -> str:
+    """List all project phases defined for pull planning."""
+    return _serialize(lps.list_phases(_project()))
+
+
+@mcp.tool()
+def lps_upsert_phase(
+    phase_id: str,
+    name: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> str:
+    """Create or update a project phase.
+
+    Args:
+        phase_id: Stable identifier (e.g. "PH-01" or "fundacoes").
+        name: Human-readable name (e.g. "Fundações").
+        start_date: ISO 'YYYY-MM-DD' — optional.
+        end_date: ISO 'YYYY-MM-DD' — optional.
+    """
+    return _serialize(lps.upsert_phase(_project(), phase_id, name, start_date, end_date))
+
+
+@mcp.tool()
+def lps_set_pull_plan(phase_id: str, task_uids: list[int]) -> str:
+    """Set the pull-plan sequence for a phase.
+
+    Pull planning works backwards from the phase milestone. Pass `task_uids`
+    in execution order — first item runs first. Each UID is validated
+    against the loaded project.
+    """
+    return _serialize(lps.set_pull_plan(_project(), phase_id, task_uids))
+
+
+@mcp.tool()
+def lps_get_pull_plan(phase_id: str) -> str:
+    """Retrieve the pull plan for a phase."""
+    return _serialize(lps.get_pull_plan(_project(), phase_id))
+
+
+@mcp.tool()
+def lps_register_constraint(
+    task_uid: int,
+    constraint_type: str,
+    description: str,
+    owner: str | None = None,
+    due_date: str | None = None,
+) -> str:
+    """Register a constraint blocking a task.
+
+    Valid types: material | document | information | design | labor |
+                 equipment | access | permit | prerequisite | other.
+
+    Args:
+        task_uid: Task UID in the loaded project.
+        constraint_type: One of the valid types above.
+        description: What is blocking (e.g. "aço CA-50 não chegou").
+        owner: Person/team responsible for clearing (e.g. email).
+        due_date: ISO date when the constraint should be cleared.
+    """
+    return _serialize(
+        lps.register_constraint(
+            _project(), task_uid, constraint_type, description, owner, due_date,
+        )
+    )
+
+
+@mcp.tool()
+def lps_clear_constraint(constraint_id: str) -> str:
+    """Mark a constraint as cleared (resolved). Uses today's date."""
+    return _serialize(lps.clear_constraint(_project(), constraint_id))
+
+
+@mcp.tool()
+def lps_list_constraints(
+    task_uid: int | None = None,
+    status: str | None = None,
+    constraint_type: str | None = None,
+) -> str:
+    """List constraints, optionally filtered by task UID, status or type.
+
+    Status values: 'open' | 'cleared'.
+    """
+    return _serialize(
+        lps.list_constraints(_project(), task_uid, status, constraint_type)
+    )
+
+
+@mcp.tool()
+def lps_lookahead(weeks: int = 6, from_date: str | None = None) -> str:
+    """Return tasks starting within the next N weeks with their open constraints.
+
+    Classic LPS lookahead — answers "what's coming, and what's blocking it?".
+    Tasks marked as ready (no open constraints) can be committed to a WWP.
+
+    Args:
+        weeks: Horizon in weeks (default 6).
+        from_date: ISO 'YYYY-MM-DD'; defaults to today.
+    """
+    return _serialize(lps.lookahead(_project(), weeks, from_date))
+
+
+@mcp.tool()
+def lps_add_commitment(
+    week: str,
+    task_uid: int,
+    committed_by: str | None = None,
+    promised_hours: float | None = None,
+) -> str:
+    """Add a task commitment to a weekly work plan.
+
+    Args:
+        week: ISO week 'YYYY-Www' (e.g. '2025-W03').
+        task_uid: Task UID.
+        committed_by: Team or person making the commitment.
+        promised_hours: Hours promised by the team for the week.
+    """
+    return _serialize(
+        lps.add_commitment(_project(), week, task_uid, committed_by, promised_hours)
+    )
+
+
+@mcp.tool()
+def lps_mark_complete(
+    week: str,
+    task_uid: int,
+    complete: bool,
+    actual_hours: float | None = None,
+    variance_reason: str | None = None,
+) -> str:
+    """Close a commitment at week end.
+
+    If `complete=False`, a variance_reason is required. Valid reasons:
+    weather | design_change | material_delay | labor_unavailable |
+    equipment_breakdown | rework | permit | prerequisite_incomplete |
+    scope_change | other.
+    """
+    return _serialize(
+        lps.mark_complete(_project(), week, task_uid, complete, actual_hours, variance_reason)
+    )
+
+
+@mcp.tool()
+def lps_get_wwp(week: str) -> str:
+    """Get the weekly work plan for a given ISO week (e.g. '2025-W03')."""
+    return _serialize(lps.get_wwp(_project(), week))
+
+
+@mcp.tool()
+def lps_ppc(week: str | None = None, weeks_back: int = 4) -> str:
+    """Compute Percent Plan Complete.
+
+    If `week` is given, returns PPC for that week only. Otherwise returns a
+    series of the last `weeks_back` weeks plus the average PPC. Variance
+    reasons are aggregated so you see why commitments fail most often.
+    """
+    return _serialize(lps.calculate_ppc(_project(), week, weeks_back))
 
 
 def main() -> None:

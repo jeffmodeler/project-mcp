@@ -7,8 +7,7 @@ sidecar folder next to the project file:
     C:\\schedules\\obra-acme.mpp         ← authoritative schedule
     C:\\schedules\\obra-acme.awp\\       ← sidecar folder (created on demand)
         awp.json                          ← CWA/CWP/IWP hierarchy
-        constraints.json                  ← LPS constraints (future)
-        ppc-history.json                  ← weekly PPC history (future)
+        lps.json                          ← LPS: phases, constraints, WWP, PPC
 """
 from __future__ import annotations
 
@@ -22,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 SIDECAR_VERSION = "1.0"
 AWP_FILENAME = "awp.json"
+LPS_FILENAME = "lps.json"
 
 
 def sidecar_dir(project_path: str | Path) -> Path:
@@ -88,4 +88,54 @@ def save_awp(project_path: str | Path, payload: dict[str, Any]) -> Path:
     logger.info("wrote %s (%d CWA, %d CWP, %d IWP)",
                 path, len(payload.get("cwa", [])),
                 len(payload.get("cwp", [])), len(payload.get("iwp", [])))
+    return path
+
+
+def lps_file(project_path: str | Path) -> Path:
+    """Path to the LPS sidecar JSON file."""
+    return sidecar_dir(project_path) / LPS_FILENAME
+
+
+def default_lps_payload(project_path: str | Path) -> dict[str, Any]:
+    """Return an empty LPS payload with metadata filled in."""
+    return {
+        "version": SIDECAR_VERSION,
+        "project_source": str(Path(project_path).name),
+        "updated_at": datetime.now(UTC).isoformat(),
+        "phases": [],
+        "constraints": [],
+        "weekly_work_plans": [],
+    }
+
+
+def load_lps(project_path: str | Path) -> dict[str, Any]:
+    """Load LPS sidecar. Returns an empty payload if the file does not exist."""
+    path = lps_file(project_path)
+    if not path.exists():
+        return default_lps_payload(project_path)
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("failed to read %s: %s — returning empty payload", path, exc)
+        return default_lps_payload(project_path)
+    for key in ("phases", "constraints", "weekly_work_plans"):
+        data.setdefault(key, [])
+    data.setdefault("version", SIDECAR_VERSION)
+    data.setdefault("project_source", Path(project_path).name)
+    return data
+
+
+def save_lps(project_path: str | Path, payload: dict[str, Any]) -> Path:
+    """Persist the LPS payload to disk. Updates `updated_at` timestamp."""
+    ensure_sidecar_dir(project_path)
+    payload["updated_at"] = datetime.now(UTC).isoformat()
+    payload.setdefault("version", SIDECAR_VERSION)
+    path = lps_file(project_path)
+    with path.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2, ensure_ascii=False)
+    logger.info("wrote %s (%d phases, %d constraints, %d WWPs)",
+                path, len(payload.get("phases", [])),
+                len(payload.get("constraints", [])),
+                len(payload.get("weekly_work_plans", [])))
     return path
