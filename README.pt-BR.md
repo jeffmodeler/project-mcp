@@ -8,8 +8,10 @@
 
 Servidor MCP (Model Context Protocol) que expõe arquivos do Microsoft Project
 para clientes LLM como Claude Desktop e Claude Code. Lê cronogramas, recursos,
-dependências, dados de caminho crítico e variação de baseline — tudo local,
-sem chamadas à nuvem e sem necessidade de licença do Microsoft Project.
+dependências, caminho crítico e variação de baseline — e adiciona camadas
+de **AWP** (Advanced Work Packaging, CII) e **LPS** (Last Planner System, Lean)
+para gerenciar pacotes de trabalho, restrições, compromissos semanais e PPC.
+Tudo local, sem chamadas à nuvem e sem necessidade de licença do Microsoft Project.
 
 ## Por que existe
 
@@ -78,7 +80,8 @@ Adicione ao seu `claude_desktop_config.json`:
 }
 ```
 
-Reinicie o Claude Desktop. As 13 tools ficam disponíveis em qualquer conversa.
+Reinicie o Claude Desktop. As 35 tools ficam disponíveis em qualquer conversa
+(13 do núcleo MS Project + 10 AWP + 12 LPS).
 
 ## Tools disponíveis
 
@@ -123,16 +126,10 @@ Liste as 5 tarefas com maior variação de baseline.
 Exporte o projeto completo para C:\relatorios\obra-acme.json
 ```
 
-## Roadmap — AWP e LPS
-
-Próximas metodologias planejadas, ambas expostas como **tools MCP consumidas
-via chat** (sem GUI própria — o Claude interpreta pedidos em linguagem natural
-e chama as tools).
-
-### AWP — Advanced Work Packaging
+## AWP — Advanced Work Packaging ✅
 
 Metodologia do **Construction Industry Institute (CII)** que estrutura a
-execução em pacotes de trabalho alinhados entre engenharia, compras e campo:
+execução em pacotes de trabalho alinhados entre engenharia, compras e campo.
 
 ```
 CWA (Construction Work Area) → CWP (Construction Work Package)
@@ -144,90 +141,116 @@ CWA (Construction Work Area) → CWP (Construction Work Package)
 Foco: **path of construction** + **readiness** (nada começa no canteiro sem
 materiais, documentação e acessos disponíveis).
 
-#### Tools AWP planejadas
+### Tools AWP (10)
 
 | Tool | Finalidade |
 |---|---|
-| `awp_list_cwa` | Lista Construction Work Areas (via WBS ou sidecar) |
-| `awp_list_cwp` | Lista CWPs com tarefas associadas e status |
-| `awp_assign_task_to_cwp` | Vincula tarefa a um CWP (grava no sidecar JSON) |
-| `awp_path_of_construction` | Sequencia CWPs por dependências (caminho crítico de pacotes) |
-| `awp_readiness_check` | Verifica se um CWP tem tudo pronto: materiais, docs, acesso |
-| `awp_generate_iwp` | Quebra um CWP em IWPs por restrição de duração/tamanho |
-| `awp_export_wpr` | Gera Work Package Release — pacote pronto para o canteiro |
+| `awp_list_cwa` | Lista Construction Work Areas |
+| `awp_upsert_cwa` | Cria ou atualiza uma CWA |
+| `awp_list_cwp` | Lista CWPs com `task_count`, `total_hours`, `any_critical` |
+| `awp_upsert_cwp` | Cria ou atualiza um CWP (status: planned/ready/in-progress/complete/on-hold) |
+| `awp_assign_task_to_cwp` | Vincula tarefa a um CWP (move de outro se necessário) |
+| `awp_set_cwp_requirements` | Define requisitos do CWP (materiais, documentos, acessos) |
+| `awp_readiness_check` | Verifica se um CWP está pronto — compara requisitos vs disponíveis |
+| `awp_path_of_construction` | Sequencia CWPs por data de início com contagem de tarefas críticas |
+| `awp_generate_iwps` | Quebra um CWP em IWPs limitados por horas de trabalho |
+| `awp_export_wpr` | Gera Work Package Release — JSON auto-contido pro canteiro |
 
-### LPS — Last Planner System
+## LPS — Last Planner System ✅
 
-Método de **Lean Construction** com 5 níveis de planejamento:
+Método de **Lean Construction** com 5 níveis de planejamento.
 
 ```
-Master → Phase (pull plan) → Lookahead (6 semanas, remove restrições)
+Master → Phase (pull plan) → Lookahead (N semanas, remove restrições)
                               → WWP (Weekly Work Plan) → Daily huddle
 ```
 
-Métricas principais: **PPC** (Percent Plan Complete), motivos de não-cumprimento,
-variance.
+Métrica principal: **PPC** (Percent Plan Complete) — compromissos cumpridos /
+compromissos assumidos.
 
-#### Tools LPS planejadas
+### Tools LPS (12)
 
 | Tool | Finalidade |
 |---|---|
-| `lps_phase_pull_plan_get` | Lê pull plan da fase |
-| `lps_phase_pull_plan_set` | Grava sequência reversa de uma fase (pull planning) |
-| `lps_lookahead` | Janela de N semanas à frente com restrições |
-| `lps_register_constraint` | Adiciona restrição a uma tarefa (tipo, responsável, prazo) |
-| `lps_clear_constraint` | Remove restrição quando resolvida |
-| `lps_weekly_work_plan` | Compromissos da semana + status |
-| `lps_mark_complete` | Fecha tarefa do WWP (alimenta PPC) |
-| `lps_ppc` | Calcula PPC por semana/equipe + motivos de variance |
+| `lps_list_phases` | Lista fases do projeto |
+| `lps_upsert_phase` | Cria ou atualiza uma fase (PH-01, datas início/fim) |
+| `lps_set_pull_plan` | Define sequência reversa (pull planning) com UIDs de tarefas |
+| `lps_get_pull_plan` | Retorna pull plan de uma fase |
+| `lps_register_constraint` | Registra restrição (material/document/labor/equipment/access/permit/…) |
+| `lps_clear_constraint` | Marca restrição como resolvida |
+| `lps_list_constraints` | Lista com filtros por task, status, tipo |
+| `lps_lookahead` | Janela de N semanas com tarefas ready/blocked por restrições |
+| `lps_add_commitment` | Adiciona compromisso a um Weekly Work Plan (ISO week `2026-W03`) |
+| `lps_mark_complete` | Fecha compromisso com `actual_hours` ou `variance_reason` |
+| `lps_get_wwp` | Lê WWP de uma semana |
+| `lps_ppc` | Calcula PPC de uma semana ou série das últimas N semanas |
 
-### Arquitetura prevista
+**Tipos de restrição aceitos**: `material`, `document`, `information`, `design`,
+`labor`, `equipment`, `access`, `permit`, `prerequisite`, `other`.
 
-**Abordagem sidecar** — o `.mpp` permanece como fonte mestre de tarefas
-(read-only preservado). Ao lado de cada projeto, uma pasta `<nome>.awp/`
-guarda metadados que o Project não representa bem:
+**Razões de variance aceitas**: `weather`, `design_change`, `material_delay`,
+`labor_unavailable`, `equipment_breakdown`, `rework`, `permit`,
+`prerequisite_incomplete`, `scope_change`, `other`.
+
+## Arquitetura sidecar
+
+O `.mpp`/`.xml` permanece como fonte mestre das tarefas (read-only preservado).
+Ao lado do arquivo do projeto, uma pasta `<nome>.awp/` guarda metadados que o
+Project não representa bem:
 
 ```
 C:\cronogramas\
-├── obra-acme.mpp              ← fonte mestre (não modificado)
-└── obra-acme.awp/             ← sidecar criado pelo project-mcp
-    ├── cwa-cwp.json           ← hierarquia AWP
-    ├── constraints.json       ← restrições LPS
-    ├── wwp.json               ← weekly work plans + compromissos
-    └── ppc-history.json       ← histórico de PPC semanal
+├── obra-acme.mpp              ← fonte mestre (nunca modificada)
+└── obra-acme.awp/             ← sidecar criado automaticamente
+    ├── awp.json               ← CWA / CWP / IWP
+    └── lps.json               ← phases, pull plans, constraints, WWPs
 ```
 
-### Exemplo de diálogo com AWP/LPS
+Cada tool de escrita atualiza `updated_at` (ISO 8601 UTC) no JSON.
+
+## Exemplo de diálogo com AWP + LPS
 
 ```
-Você: "Carrega o cronograma em D:\obra\vila-idosos.mpp"
+Você: Carregue o cronograma em D:\obra\vila-idosos.mpp
 Claude: [load_project]
         "342 tarefas, 28 recursos. Início 2025-01-15."
 
-Você: "Qual é o lookahead de 4 semanas e quais tarefas têm restrições?"
+Você: Crie a CWA "Fundações" com id CWA-01 prioridade 1
+Claude: [awp_upsert_cwa] "CWA-01 criada."
+
+Você: Crie o CWP-01.01 "Fundação Bloco A" dentro da CWA-01 e
+      associe as tarefas 145, 146, 147
+Claude: [awp_upsert_cwp + awp_assign_task_to_cwp x3]
+        "CWP-01.01 criado com 3 tarefas (total 240h, 1 crítica)."
+
+Você: Define que esse CWP precisa de: aço CA-50, concreto fck25, AR-01
+Claude: [awp_set_cwp_requirements] "Requisitos registrados."
+
+Você: O CWP está ready? Chegou aço CA-50 e AR-01
+Claude: [awp_readiness_check]
+        "Não — falta: concreto fck25."
+
+Você: Registra essa pendência como restrição material do CWP
+Claude: [lps_register_constraint]
+        "CST-3F2A4B91 registrada — material, responsável compras."
+
+Você: Qual é o lookahead de 4 semanas?
 Claude: [lps_lookahead(weeks=4)]
-        "47 tarefas nas próximas 4 semanas. 12 com restrições abertas:
-         - #145 'Forma P2' falta aço CA-50
-         - #167 'Revestimento sala 3' falta projeto executivo..."
+        "47 tarefas. 12 com restrições abertas. Críticas: 3."
 
-Você: "Chegou o aço, remove essa restrição"
-Claude: [lps_clear_constraint(task=145, id='material-aco')]
-        "Restrição removida. Task #145 agora está READY."
+Você: Chegou o concreto — limpa a restrição CST-3F2A4B91
+Claude: [lps_clear_constraint] "Resolvida em 2025-02-03. CWP agora READY."
 
-Você: "Calcula o PPC da semana passada"
-Claude: [lps_ppc(week='2025-04-14')]
-        "PPC = 73% (11 de 15 tarefas cumpridas).
-         Motivos das 4 falhas: chuva (2), retrabalho (1), material (1)."
+Você: Compromete a task 145 para o time-arq na semana 2025-W06, 40h
+Claude: [lps_add_commitment] "Compromisso adicionado."
+
+Você: No fim da semana: task 145 concluída em 42h
+Claude: [lps_mark_complete] "Fechada."
+
+Você: Calcula o PPC da semana
+Claude: [lps_ppc(week='2025-W06')]
+        "PPC 100% (1/1 entregue)."
 ```
-
-### Status
-
-- 🚧 **Em design** — especificação sendo escrita
-- ⏳ **Não implementado ainda** — as tools acima não existem no código
-- 📖 **Documentado aqui** como referência para contribuidores e usuários
-
-Abra uma issue em [Issues](https://github.com/jeffmodeler/project-mcp/issues)
-para discutir prioridades ou contribuir com a implementação.
 
 ## Desenvolvimento
 

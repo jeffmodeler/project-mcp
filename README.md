@@ -7,9 +7,11 @@
 > 🇺🇸 English · 🇧🇷 [Versão em português](README.pt-BR.md)
 
 Model Context Protocol (MCP) server that exposes Microsoft Project files
-to LLM clients like Claude Desktop. Reads schedules, resources, dependencies,
-critical-path data, and baseline variance — all locally, with no cloud calls
-and no Microsoft Project license required.
+to LLM clients like Claude Desktop and Claude Code. Reads schedules, resources,
+dependencies, critical-path data, and baseline variance — and adds **AWP**
+(Advanced Work Packaging, CII) and **LPS** (Last Planner System, Lean) layers
+for work-package planning, constraints, weekly commitments and PPC tracking.
+All local, no cloud calls, no Microsoft Project license required.
 
 ## Why
 
@@ -78,7 +80,8 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The 12 tools become available in any conversation.
+Restart Claude Desktop. The 35 tools become available in any conversation
+(13 core MS Project + 10 AWP + 12 LPS).
 
 ## Tools
 
@@ -122,6 +125,85 @@ Which resources are overallocated and by how much?
 List the 5 tasks with the largest baseline variance.
 Export the full project to C:\reports\obra-acme.json
 ```
+
+## AWP — Advanced Work Packaging
+
+Construction Industry Institute (CII) methodology. Breaks execution into
+aligned packages across engineering, procurement and field:
+
+```
+CWA (Construction Work Area) → CWP (Construction Work Package)
+                                     ↓
+                               IWP (Installation Work Package)
+```
+
+Focus: path of construction + readiness (nothing starts in the field until
+materials, documents and access are available).
+
+### AWP tools
+
+| Tool | Purpose |
+|---|---|
+| `awp_list_cwa` | List Construction Work Areas |
+| `awp_upsert_cwa` | Create or update a CWA |
+| `awp_list_cwp` | List CWPs with `task_count`, `total_hours`, `any_critical` |
+| `awp_upsert_cwp` | Create or update a CWP (status: planned/ready/in-progress/complete/on-hold) |
+| `awp_assign_task_to_cwp` | Link a task UID to a CWP (moves it if already elsewhere) |
+| `awp_set_cwp_requirements` | Set CWP requirements (materials, documents, access) |
+| `awp_readiness_check` | Check whether a CWP is ready — compares requirements vs available |
+| `awp_path_of_construction` | Sequence CWPs by earliest start, with critical-task counts |
+| `awp_generate_iwps` | Split a CWP into IWPs sized by labor hours |
+| `awp_export_wpr` | Generate a Work Package Release — self-contained JSON for field teams |
+
+## LPS — Last Planner System
+
+Lean Construction method with five planning levels:
+
+```
+Master → Phase (pull plan) → Lookahead (N weeks, clears constraints)
+                              → WWP (Weekly Work Plan) → Daily huddle
+```
+
+Key metric: **PPC** (Percent Plan Complete) — commitments kept / commitments made.
+
+### LPS tools
+
+| Tool | Purpose |
+|---|---|
+| `lps_list_phases` | List project phases |
+| `lps_upsert_phase` | Create or update a phase (with start/end dates) |
+| `lps_set_pull_plan` | Set execution sequence (pull planning) with task UIDs |
+| `lps_get_pull_plan` | Retrieve a phase's pull plan |
+| `lps_register_constraint` | Register a constraint (material/document/labor/equipment/access/permit/…) |
+| `lps_clear_constraint` | Mark a constraint as resolved |
+| `lps_list_constraints` | List with filters by task, status, type |
+| `lps_lookahead` | N-week horizon with ready/blocked tasks (from open constraints) |
+| `lps_add_commitment` | Add a commitment to a weekly work plan (ISO week e.g. `2026-W03`) |
+| `lps_mark_complete` | Close a commitment with `actual_hours` or `variance_reason` |
+| `lps_get_wwp` | Read a weekly work plan |
+| `lps_ppc` | Compute PPC for a single week or a series of the last N weeks |
+
+**Constraint types**: material, document, information, design, labor,
+equipment, access, permit, prerequisite, other.
+
+**Variance reasons**: weather, design_change, material_delay, labor_unavailable,
+equipment_breakdown, rework, permit, prerequisite_incomplete, scope_change, other.
+
+## Sidecar storage
+
+The `.mpp`/`.xml` file remains authoritative (read-only preserved). Next to
+the project file, an `<name>.awp/` folder holds metadata that Microsoft
+Project does not represent well:
+
+```
+C:\schedules\
+├── obra-acme.mpp              ← authoritative schedule (never modified)
+└── obra-acme.awp/             ← sidecar folder, created on demand
+    ├── awp.json               ← CWA / CWP / IWP hierarchy
+    └── lps.json               ← phases, pull plans, constraints, WWPs
+```
+
+Every write updates `updated_at` (ISO 8601 UTC) in the JSON.
 
 ## Development
 
