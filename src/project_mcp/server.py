@@ -10,7 +10,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from project_mcp import mspdi
+from project_mcp import awp, mspdi
 from project_mcp.pbip_writer import PbipWriter
 
 logging.basicConfig(
@@ -616,6 +616,158 @@ def generate_pbip_dashboard(
             "Card with [Custo Total], bar chart by Fase, and a table of critical tasks."
         ),
     })
+
+
+# ============================================================
+# AWP — Advanced Work Packaging (CII)
+#
+# Hierarchy: CWA (Construction Work Area) -> CWP (Construction Work Package)
+#            -> IWP (Installation Work Package)
+#
+# Metadata persisted in sidecar folder next to the project file
+# (e.g. obra-acme.mpp -> obra-acme.awp/awp.json). The .mpp/.xml is
+# never modified — tasks are linked to CWPs by UID only.
+# ============================================================
+
+
+@mcp.tool()
+def awp_list_cwa() -> str:
+    """List all Construction Work Areas defined for the current project.
+
+    Requires a project loaded via `load_project`. Returns CWAs stored in the
+    sidecar folder next to the project file.
+    """
+    return _serialize(awp.list_cwa(_project()))
+
+
+@mcp.tool()
+def awp_upsert_cwa(
+    cwa_id: str,
+    name: str,
+    description: str | None = None,
+    priority: int = 500,
+) -> str:
+    """Create or update a Construction Work Area.
+
+    Args:
+        cwa_id: Stable identifier (e.g. "CWA-01" or "Fundacoes").
+        name: Human-readable name.
+        description: Optional longer description.
+        priority: 1 = highest, 1000 = lowest (default 500).
+    """
+    return _serialize(awp.upsert_cwa(_project(), cwa_id, name, description, priority))
+
+
+@mcp.tool()
+def awp_list_cwp(cwa_id: str | None = None) -> str:
+    """List Construction Work Packages, optionally filtered by CWA.
+
+    Each CWP is enriched with computed fields: task_count, total_hours,
+    any_critical (whether any assigned task is on the critical path).
+    """
+    return _serialize(awp.list_cwp(_project(), cwa_id))
+
+
+@mcp.tool()
+def awp_upsert_cwp(
+    cwp_id: str,
+    name: str,
+    cwa_id: str,
+    description: str | None = None,
+    status: str = "planned",
+) -> str:
+    """Create or update a Construction Work Package.
+
+    Args:
+        cwp_id: Stable identifier (e.g. "CWP-01.01").
+        name: Human-readable name.
+        cwa_id: Parent CWA — must already exist.
+        description: Optional longer description.
+        status: One of: planned | ready | in-progress | complete | on-hold.
+    """
+    return _serialize(
+        awp.upsert_cwp(_project(), cwp_id, name, cwa_id, description, status)
+    )
+
+
+@mcp.tool()
+def awp_assign_task_to_cwp(task_uid: int, cwp_id: str) -> str:
+    """Link a project task (by UID) to a CWP.
+
+    If the task was previously assigned to another CWP, it is moved. Only
+    one CWP per task — the sidecar maintains a single source of truth for
+    this mapping.
+    """
+    return _serialize(awp.assign_task_to_cwp(_project(), task_uid, cwp_id))
+
+
+@mcp.tool()
+def awp_set_cwp_requirements(
+    cwp_id: str,
+    materials: list[str] | None = None,
+    documents: list[str] | None = None,
+    access: list[str] | None = None,
+) -> str:
+    """Set readiness requirements for a CWP (materials, documents, access).
+
+    Omitting an argument (None) preserves the existing list. Pass an empty
+    list [] to clear a category.
+    """
+    return _serialize(
+        awp.set_cwp_requirements(_project(), cwp_id, materials, documents, access)
+    )
+
+
+@mcp.tool()
+def awp_readiness_check(
+    cwp_id: str,
+    available_materials: list[str] | None = None,
+    available_documents: list[str] | None = None,
+    available_access: list[str] | None = None,
+) -> str:
+    """Check whether a CWP has all requirements available to start.
+
+    Pass what is currently on-site / approved via the `available_*` arguments.
+    Returns `ready: true` only when no required items are missing.
+    """
+    return _serialize(
+        awp.readiness_check(
+            _project(), cwp_id,
+            available_materials, available_documents, available_access,
+        )
+    )
+
+
+@mcp.tool()
+def awp_path_of_construction() -> str:
+    """Compute the ideal execution sequence of CWPs.
+
+    For each CWP, aggregates earliest start, latest finish, total hours,
+    critical-task count, then sorts by earliest start. Returns the "path of
+    construction" — which CWPs feed which, and when each should execute.
+    """
+    return _serialize(awp.path_of_construction(_project()))
+
+
+@mcp.tool()
+def awp_generate_iwps(cwp_id: str, max_hours_per_iwp: float = 40.0) -> str:
+    """Split a CWP into IWPs sized by labor hours.
+
+    Walks the CWP's tasks in schedule order and groups them so no IWP exceeds
+    `max_hours_per_iwp` (default: one 40h work-week). Tasks larger than the
+    cap become standalone IWPs. Existing IWPs for this CWP are replaced.
+    """
+    return _serialize(awp.generate_iwps(_project(), cwp_id, max_hours_per_iwp))
+
+
+@mcp.tool()
+def awp_export_wpr(cwp_id: str) -> str:
+    """Generate a Work Package Release — a self-contained package for field teams.
+
+    Returns CWP metadata, requirements, full task list (names, dates, hours)
+    and IWP breakdown. This is what you hand to field execution.
+    """
+    return _serialize(awp.export_wpr(_project(), cwp_id))
 
 
 def main() -> None:
