@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
+> 🇺🇸 English · 🇧🇷 [Versão em português](README.pt-BR.md)
+
 Model Context Protocol (MCP) server that exposes Microsoft Project files
 to LLM clients like Claude Desktop. Reads schedules, resources, dependencies,
 critical-path data, and baseline variance — all locally, with no cloud calls
